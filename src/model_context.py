@@ -393,6 +393,36 @@ def _proxy_catalog_context(endpoint_url: str, model: str) -> Optional[int]:
     return None
 
 
+def _lmstudio_loaded_context(endpoint_url: str, model: str) -> Optional[int]:
+    """Runtime context window of a model loaded in LM Studio.
+
+    LM Studio's native catalog (``GET /api/v1/models``) returns ``models[]``
+    entries carrying ``loaded_instances[].config.context_length`` — the window
+    the server was actually loaded with, which is the only number a prompt has
+    to fit into. ``max_context_length`` on the same entry is the model's trained
+    ceiling (262144 for Qwen3.x) and is deliberately ignored: budgeting against
+    it sends prompts the server cannot hold.
+
+    Returns None when the model isn't found or has no loaded instance.
+    """
+    base = endpoint_url.split("/v1")[0] if "/v1" in endpoint_url else endpoint_url.rsplit("/", 1)[0]
+    try:
+        r = httpx.get(f"{base}/api/v1/models", timeout=REQUEST_TIMEOUT)
+        if not r.is_success:
+            return None
+        for entry in (r.json().get("models") or []):
+            key = entry.get("key") or ""
+            if key != model and key.split("/")[-1] != model.split("/")[-1]:
+                continue
+            for inst in (entry.get("loaded_instances") or []):
+                ctx = (inst.get("config") or {}).get("context_length")
+                if isinstance(ctx, int) and ctx > 0:
+                    return ctx
+    except Exception as e:
+        logger.debug(f"LM Studio native catalog probe failed for {model}: {e}")
+    return None
+
+
 def _query_context_length(endpoint_url: str, model: str) -> Tuple[int, bool]:
     """Query the model API for context length. Returns (context_length, known) where
     ``known`` is False only for the bare DEFAULT_CONTEXT fallback."""
@@ -459,6 +489,14 @@ def _query_context_length(endpoint_url: str, model: str) -> Tuple[int, bool]:
                     break
     except Exception as e:
         logger.debug(f"Failed to query context length for {model}: {e}")
+
+    # LM Studio's OpenAI-compatible list is identity-only (id/object/owned_by),
+    # so api_ctx is still empty here and the name-matched known-table value would
+    # win — budgeting against the model's trained ceiling instead of the window
+    # the server was loaded with. Its native catalog reports the loaded
+    # instance's real context; feed that into the local-endpoint rule below.
+    if not api_ctx and is_local_endpoint(endpoint_url):
+        api_ctx = _lmstudio_loaded_context(endpoint_url, model)
 
     # For local/self-hosted endpoints, trust the API value (user set --max-model-len)
     # For cloud APIs, use the larger value (API can report low defaults)

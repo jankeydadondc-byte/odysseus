@@ -21,8 +21,14 @@ context metadata. It is an explicit older shape, not a loose fallback.
 OpenAI `/v1/models` is identity-only when native endpoints are unavailable.
 
 Loaded-instance context is the effective runtime context; maximum context is a
-separate limit. Model type maps family, explicit capability booleans map
-vision/tools/reasoning, and architecture is provider-reported model family.
+separate limit. Context discovery reads `loaded_instances[].config.context_length`
+from the native catalog and never `max_context_length` — the OpenAI-compatible
+`/v1/models` list is identity-only and `/slots` answers 200 with an error object,
+so without the native probe a name-matched known-table entry wins and the agent
+budgets against the trained ceiling instead of the loaded window.
+
+Model type maps family, explicit capability booleans map vision/tools/reasoning,
+and architecture is provider-reported model family.
 
 ## Request And Response Shape
 

@@ -312,3 +312,70 @@ class TestGetContextLength:
 
         endpoint = "http://100.117.136.97:34521/v1/chat/completions"
         assert model_context.get_context_length(endpoint, "unknown-proxy-model") == model_context.DEFAULT_CONTEXT
+
+
+class TestLmStudioLoadedInstanceContext:
+    """LM Studio's runtime window must outrank the known-model table.
+
+    Measured 2026-09-09: a 27B Qwen served by LM Studio at context_length
+    25600 was budgeted against 131072 because `_lookup_known` name-matched
+    the model and nothing on the wire contradicted it — LM Studio answers
+    `/slots` with a 200 + error object (not a slots list) and `/v1/models`
+    with identity-only entries carrying no context field. The native
+    `/api/v1/models` catalog does report the loaded instance's real window,
+    so consult it before falling back to the name-matched guess. Budgeting
+    4.4x over what the server will hold is what pushed the KV cache past
+    VRAM and stalled workspace inspection.
+    """
+
+    MODEL = "qwen3.6-27b-fable-fusion-711-uncensored-heretic-nm-dau-neo-max-mtp"
+
+    def setup_method(self):
+        model_context._context_cache.clear()
+        model_context._catalog_ctx_cache.clear()
+
+    def _lmstudio_transport(self, monkeypatch, loaded_ctx=25600):
+        """Mirror the real LM Studio wire shapes captured from 127.0.0.1:1234."""
+
+        def fake_get(url, *args, **kwargs):
+            if url.endswith("/slots"):
+                # 200 with an error object, not a list — LM Studio has no /slots.
+                return _FakeResp({"error": "Unexpected endpoint or method. (GET /slots)"})
+            if url.endswith("/api/v1/models"):
+                return _FakeResp(
+                    {
+                        "models": [
+                            {
+                                "key": self.MODEL,
+                                "max_context_length": 262144,
+                                "loaded_instances": (
+                                    [{"config": {"context_length": loaded_ctx}}]
+                                    if loaded_ctx
+                                    else []
+                                ),
+                            }
+                        ]
+                    }
+                )
+            # OpenAI-compatible list is identity-only: id/object/owned_by.
+            return _FakeResp({"data": [{"id": self.MODEL, "object": "model"}]})
+
+        monkeypatch.setattr(model_context.httpx, "get", fake_get)
+
+    def test_loaded_instance_context_beats_known_table(self, monkeypatch):
+        assert model_context._lookup_known(self.MODEL) == 131072
+        self._lmstudio_transport(monkeypatch)
+
+        assert model_context._query_context_length(
+            "http://127.0.0.1:1234/v1", self.MODEL
+        ) == (25600, True)
+
+    def test_no_loaded_instance_keeps_known_table(self, monkeypatch):
+        """Nothing loaded means no runtime window to report — don't invent one
+        from `max_context_length` (262144 is the trained ceiling, not what the
+        server will serve)."""
+        self._lmstudio_transport(monkeypatch, loaded_ctx=None)
+
+        assert model_context._query_context_length(
+            "http://127.0.0.1:1234/v1", self.MODEL
+        ) == (131072, True)
