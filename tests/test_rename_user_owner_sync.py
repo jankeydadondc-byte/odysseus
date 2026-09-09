@@ -1,3 +1,4 @@
+import os
 """Renaming a user must update non-SQL owner stores, not just the SQL DB.
 
 The DB owner-rename loop in the rename_user route updates every SQL-backed
@@ -483,7 +484,12 @@ def test_rename_updates_upload_metadata_owner(rename_endpoint):
     updated = json.loads((upload_dir / "uploads.json").read_text(encoding="utf-8"))
     assert "alice:hash-alice" not in updated
     assert updated["alice2:hash-alice"]["owner"] == "alice2"
-    assert handler.resolve_upload(upload_id, owner="alice2")["path"] == str(upload_path)
+    # upload_handler stores os.path.normcase(os.path.realpath(...)), which
+    # lowercases the drive letter on Windows; normcase both sides so this
+    # compares paths rather than their spelling. No-op on POSIX.
+    assert os.path.normcase(
+        handler.resolve_upload(upload_id, owner="alice2")["path"]
+    ) == os.path.normcase(str(upload_path))
     assert handler.resolve_upload(upload_id, owner="alice") is None
 
 

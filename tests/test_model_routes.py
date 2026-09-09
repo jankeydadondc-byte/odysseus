@@ -814,6 +814,12 @@ def test_lmstudio_error_for_bare_host_port_probes_v1_models(monkeypatch):
 class TestDockerLoopbackRewrite:
     def test_rewrites_loopback_when_in_docker(self, monkeypatch):
         monkeypatch.setattr(model_routes, "_docker_host_gateway_reachable", lambda: True)
+        # _rewrite_loopback_for_docker returns the URL unchanged when the
+        # loopback address is reachable from inside the container. That probe
+        # hits the real network, so the test silently depended on nothing
+        # listening on port 1234 - it fails on any machine running LM Studio.
+        # Pin it: "in Docker" means container loopback does NOT reach the host.
+        monkeypatch.setattr(model_routes, "_container_loopback_reachable", lambda url: False)
         assert (model_routes._rewrite_loopback_for_docker("http://localhost:1234/v1")
                 == "http://host.docker.internal:1234/v1")
         assert (model_routes._rewrite_loopback_for_docker("http://127.0.0.1:1234/v1")
