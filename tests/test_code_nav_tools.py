@@ -34,7 +34,10 @@ def repo():
         os.mkdir(g)
         with open(os.path.join(g, "config"), "w") as f:
             f.write("needle in git\n")
-        yield root
+        # Forward slashes: these paths are interpolated into JSON tool payloads,
+        # and a Windows '\' is an invalid JSON escape (json.JSONDecodeError:
+        # Invalid \escape). Windows accepts '/' in paths, POSIX is unaffected.
+        yield root.replace(os.sep, "/")
     finally:
         shutil.rmtree(root, ignore_errors=True)
 
@@ -99,7 +102,7 @@ def test_grep_python_fallback_uses_relative_glob_paths(repo, monkeypatch):
     )
     assert r["exit_code"] == 0
     assert "a.py" in r["output"]
-    assert "sub/deep/c.py" in r["output"]
+    assert "sub/deep/c.py" in r["output"].replace(os.sep, "/")
 
 
 @pytest.mark.skipif(shutil.which("rg") is None, reason="targets the ripgrep fast-path")
@@ -195,7 +198,7 @@ def test_ls_path_outside_rejected(repo):
 # ── read_file line range ───────────────────────────────────────────────────
 
 def test_read_file_offset_limit(repo):
-    p = os.path.join(repo, "lines.txt")
+    p = f"{repo}/lines.txt"  # forward slash: interpolated into a JSON payload
     with open(p, "w") as f:
         f.write("\n".join(f"line{i}" for i in range(1, 11)) + "\n")
     r = _run("read_file", f'{{"path": "{p}", "offset": 3, "limit": 2}}')
