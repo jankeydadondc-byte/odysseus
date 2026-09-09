@@ -115,7 +115,17 @@ def _is_sensitive_path(resolved: str) -> bool:
     the lowercase form, so a case-sensitive check would let it slip past the
     deny-list in every file tool that relies on it.
     """
-    parts = [p.casefold() for p in resolved.split(os.sep)]
+    # Split on every separator the platform accepts, not just os.sep. Windows
+    # takes "/" as well as "\\", so splitting on os.sep alone turns
+    # "C:/Users/x/.ssh/id_rsa" into a single component, no part matches ".ssh",
+    # and the deny-list returns False — fail-OPEN. Every current caller happens
+    # to pass an os.path.realpath() result (which normalises separators), so
+    # this was not reachable, but the guard must not depend on callers
+    # remembering to normalise: the failure mode is silent and permissive.
+    # os.altsep is "/" on Windows and None on POSIX, so POSIX keeps splitting
+    # on "/" only and a backslash stays a legal filename character there.
+    _seps = os.sep + (os.altsep or "")
+    parts = [p.casefold() for p in re.split(f"[{re.escape(_seps)}]", resolved)]
     filename = parts[-1] if parts else ""
 
     # Check if any path component is a sensitive directory.
