@@ -5,7 +5,20 @@ import subprocess
 import time
 from pathlib import Path
 
+import pytest
+
 from routes.cookbook_routes import _windows_local_pid_record_line
+
+# These tests shadow `cat` on PATH to observe what the generated bash line
+# actually invokes. Git Bash prepends its own /usr/local/sbin:/usr/local/bin:
+# /usr/sbin:/usr/bin ahead of the inherited Windows PATH (measured: the
+# injected directory lands at PATH index 9), so /usr/bin/cat always wins and
+# the fake is never reached. The generated line is unaffected and is still
+# exercised wherever PATH shadowing works.
+pytestmark = pytest.mark.skipif(
+    os.name == "nt",
+    reason="PATH-shadowing a coreutil does not work under Git Bash",
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
