@@ -174,6 +174,11 @@ class TestRunningInContainer:
 class TestAppleSiliconDetection:
     """APFEL should only surface as available on native Apple Silicon Macs."""
 
+    @pytest.mark.skipif(
+        os.name == "nt",
+        reason="IS_APPLE_SILICON is gated on IS_POSIX, which derives from os.name; "
+               "patching platform.system() cannot make Windows look POSIX",
+    )
     def test_reports_true_on_macos_arm64(self, monkeypatch):
         import core.platform_compat as platform_compat
 
@@ -291,6 +296,11 @@ class TestHostDockerAccess:
         assert _host_docker_access_enabled(str(socket_path)) is False
 
     @pytest.mark.parametrize("flag", [None, "false"])
+    @pytest.mark.skipif(
+        not hasattr(socket, "AF_UNIX"),
+        reason="binds a real Unix domain socket; AF_UNIX is POSIX-only and the "
+               "host-Docker-socket feature targets the Linux container deployment",
+    )
     def test_socket_without_explicit_opt_in_is_disabled(
         self,
         monkeypatch,
@@ -307,6 +317,11 @@ class TestHostDockerAccess:
 
             assert _host_docker_access_enabled(str(socket_path)) is False
 
+    @pytest.mark.skipif(
+        not hasattr(socket, "AF_UNIX"),
+        reason="binds a real Unix domain socket; AF_UNIX is POSIX-only and the "
+               "host-Docker-socket feature targets the Linux container deployment",
+    )
     def test_explicit_opt_in_with_unix_socket_is_enabled(
         self,
         monkeypatch,
@@ -418,6 +433,9 @@ class TestPackageProbeStatus:
         user_base = tmp_path / "user-base"
         monkeypatch.setattr("site.USER_BASE", str(user_base))
         monkeypatch.setenv("HOME", str(tmp_path / "home"))
+        # ntpath.expanduser consults USERPROFILE before HOME, so setting HOME
+        # alone leaves "~" pointing at the real profile on Windows.
+        monkeypatch.setenv("USERPROFILE", str(tmp_path / "home"))
         monkeypatch.setenv("PATH", "/usr/bin")
 
         _prepend_user_install_bins_to_path()

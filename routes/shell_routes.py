@@ -361,7 +361,10 @@ def _prepend_user_install_bins_to_path() -> None:
         candidates = [os.path.join(site.USER_BASE, "bin")]
     except Exception:
         candidates = []
-    candidates.append(os.path.expanduser("~/.local/bin"))
+    # normpath: expanduser only substitutes the "~", leaving the "/" separators
+    # in place, so on Windows this yields a mixed "C:\Users\x/.local/bin".
+    # Windows tolerates that, but PATH entries should be in native form.
+    candidates.append(os.path.normpath(os.path.expanduser("~/.local/bin")))
 
     parts = (
         os.environ.get("PATH", "").split(os.pathsep) if os.environ.get("PATH") else []
