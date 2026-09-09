@@ -63,8 +63,14 @@ def test_retained_settings_gain_defaults_without_changing_custom_content(tmp_pat
         + retained.removeprefix(b"# retained deployment settings\n")
     )
     after = settings.stat()
-    assert stat.S_IMODE(after.st_mode) == 0o640
-    assert (after.st_uid, after.st_gid) == (before.st_uid, before.st_gid)
+    # Mode and ownership are POSIX concepts. Windows surfaces only a read-only
+    # bit through st_mode (0o666 here, never 0o640) and reports st_uid/st_gid as
+    # 0, so assert them only where the platform can honour them. The content,
+    # secret-redaction and idempotency assertions above are platform-neutral and
+    # still run everywhere.
+    if os.name != "nt":
+        assert stat.S_IMODE(after.st_mode) == 0o640
+        assert (after.st_uid, after.st_gid) == (before.st_uid, before.st_gid)
 
     migrated = settings.read_bytes()
     second = _run(settings)
@@ -245,6 +251,10 @@ def test_invalid_utf8_is_not_replaced(tmp_path):
     assert after.st_ino == before.st_ino
 
 
+@pytest.mark.skipif(
+    not hasattr(os, "fchown"),
+    reason="asserts fchmod-before-fchown ordering; os.fchown is POSIX-only",
+)
 def test_temporary_file_is_chmodded_before_it_is_chowned(tmp_path, monkeypatch):
     # The Compose cap set is `cap_drop: ALL` plus CHOWN/SETGID/SETUID/
     # DAC_OVERRIDE and carries no FOWNER, and searxng's entrypoint chowns

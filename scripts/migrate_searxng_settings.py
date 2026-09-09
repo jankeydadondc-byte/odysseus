@@ -126,18 +126,25 @@ def migrate_settings(path: Path) -> bool:
         # does, because searxng's entrypoint chowns /etc/searxng — root can no
         # longer chmod it and the migration dies with EPERM.
         os.fchmod(fd, stat.S_IMODE(source_stat.st_mode))
-        os.fchown(fd, source_stat.st_uid, source_stat.st_gid)
+        # POSIX-only: Windows has no fchown and no file ownership model to
+        # preserve. The chmod above is kept because os.fchmod does exist there.
+        if hasattr(os, "fchown"):
+            os.fchown(fd, source_stat.st_uid, source_stat.st_gid)
         with os.fdopen(fd, "wb") as handle:
             fd = -1
             handle.write(updated)
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary, path)
-        directory_fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
-        try:
-            os.fsync(directory_fd)
-        finally:
-            os.close(directory_fd)
+        # fsync the directory so the rename itself is durable. Windows cannot
+        # open a directory as a file descriptor (no O_DIRECTORY), and os.replace
+        # is already atomic there, so skip it rather than crash.
+        if hasattr(os, "O_DIRECTORY"):
+            directory_fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
     finally:
         if fd >= 0:
             os.close(fd)
