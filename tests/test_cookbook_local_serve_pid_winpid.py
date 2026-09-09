@@ -1,6 +1,7 @@
 """Behavioral regression coverage for Windows-local Cookbook PID recording."""
 
 import os
+import shutil
 import subprocess
 import time
 from pathlib import Path
@@ -9,21 +10,21 @@ import pytest
 
 from routes.cookbook_routes import _windows_local_pid_record_line
 
-# These tests shadow `cat` on PATH to observe what the generated bash line
-# actually invokes. Git Bash prepends its own /usr/local/sbin:/usr/local/bin:
-# /usr/sbin:/usr/bin ahead of the inherited Windows PATH (measured: the
-# injected directory lands at PATH index 9), so /usr/bin/cat always wins and
-# the fake is never reached. The generated line is unaffected and is still
-# exercised wherever PATH shadowing works.
-pytestmark = pytest.mark.skipif(
-    os.name == "nt",
-    reason="PATH-shadowing a coreutil does not work under Git Bash",
-)
 
 
 ROOT = Path(__file__).resolve().parents[1]
 COOKBOOK_ROUTES = ROOT / "routes" / "cookbook_routes.py"
 
+
+
+# Resolve bash from PATH rather than letting CreateProcess pick it. On Windows,
+# C:\Windows\System32\bash.exe (the WSL launcher) lives in the system directory,
+# which CreateProcess searches before PATH, so a bare "bash" runs WSL. WSL cannot
+# see the repo at its Windows path (exit 127, "No such file or directory") and its
+# /usr/bin shadows anything injected into PATH. shutil.which() returns the
+# PATH-resolved bash (Git Bash here), which handles both correctly. On POSIX this
+# resolves to the same /usr/bin/bash the bare name would have found.
+BASH = shutil.which("bash") or "bash"
 
 def _fake_cat(tmp_path: Path, body: str) -> Path:
     fake_bin = tmp_path / "bin"
@@ -48,7 +49,7 @@ def _run_pid_line(
     **extra_env: str,
 ) -> subprocess.CompletedProcess:
     return subprocess.run(
-        ["bash", "-c", _windows_local_pid_record_line(pid_path, ready_path)],
+        [BASH, "-c", _windows_local_pid_record_line(pid_path, ready_path)],
         capture_output=True,
         text=True,
         env=_env_for(fake_bin, **extra_env),
@@ -101,7 +102,7 @@ def test_windows_local_pid_line_waits_for_python_fallback_before_replacing(tmp_p
 
     proc = subprocess.Popen(
         [
-            "bash",
+            BASH,
             "-c",
             _windows_local_pid_record_line(pid_path, ready_path),
         ],

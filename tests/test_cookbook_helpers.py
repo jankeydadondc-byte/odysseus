@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -33,6 +34,39 @@ from routes.cookbook_helpers import (
     run_ssh_command_async,
 )
 
+
+
+# Resolve bash from PATH rather than letting CreateProcess pick it. On Windows,
+# C:\Windows\System32\bash.exe (the WSL launcher) lives in the system directory,
+# which CreateProcess searches before PATH, so a bare "bash" runs WSL. WSL cannot
+# see the repo at its Windows path (exit 127, "No such file or directory") and its
+# /usr/bin shadows anything injected into PATH. shutil.which() returns the
+# PATH-resolved bash (Git Bash here), which handles both correctly. On POSIX this
+# resolves to the same /usr/bin/bash the bare name would have found.
+BASH = shutil.which("bash") or "bash"
+
+
+def _bash_has_working_python3() -> bool:
+    """True when the resolved bash can actually run python3.
+
+    Git Bash resolves python3 to the Microsoft Store stub under
+    .../AppData/Local/Microsoft/WindowsApps/, which exits 49 instead of running
+    Python, so these snippets cannot be executed there even though the shell and
+    the paths are fine.
+    """
+    try:
+        return subprocess.run(
+            [BASH, "-c", "python3 -c 'pass'"], capture_output=True, timeout=15
+        ).returncode == 0
+    except Exception:
+        return False
+
+
+_HAS_BASH_PYTHON3 = _bash_has_working_python3()
+_needs_python3 = pytest.mark.skipif(
+    not _HAS_BASH_PYTHON3,
+    reason="the resolved bash has no working python3 (Store stub or absent)",
+)
 
 def test_safe_env_prefix_accepts_quoted_venv_path():
     assert (
@@ -349,7 +383,7 @@ def test_pip_install_fallback_chain_propagates_failure_in_venv():
         "&& echo user_attempt; }"
     )
     result = subprocess.run(
-        ["bash", "-c", script],
+        [BASH, "-c", script],
         capture_output=True, text=True, timeout=10,
     )
     assert "user_attempt" not in result.stdout
@@ -367,7 +401,7 @@ def test_pip_install_fallback_chain_tries_user_outside_venv():
         "'"
     )
     result = subprocess.run(
-        ["bash", "-c", script],
+        [BASH, "-c", script],
         capture_output=True, text=True, timeout=10,
     )
     assert "user_attempt" in result.stdout, "Chain should try --user when not in venv and base fails"
@@ -480,12 +514,13 @@ def test_pip_install_attempt_no_bare_pipe_tail():
     assert "| tail" not in snippet
 
 
+@_needs_python3
 def test_pip_install_attempt_failure_propagates_real_exit_code():
     """Run the generated snippet against a deliberately broken pip install
     to confirm the subshell exits with pip's non-zero status."""
     snippet = _pip_install_attempt("python3 -m pip install __nonexistent_package_12345__")
     result = subprocess.run(
-        ["bash", "-c", snippet],
+        [BASH, "-c", snippet],
         capture_output=True,
         text=True,
         timeout=60,
@@ -493,11 +528,12 @@ def test_pip_install_attempt_failure_propagates_real_exit_code():
     assert result.returncode != 0, "pip install of a nonexistent package should fail"
 
 
+@_needs_python3
 def test_pip_install_attempt_success_exits_zero():
     """When pip succeeds, the subshell should exit 0."""
     snippet = _pip_install_attempt("python3 -c 'pass'")
     result = subprocess.run(
-        ["bash", "-c", snippet],
+        [BASH, "-c", snippet],
         capture_output=True,
         text=True,
         timeout=15,
@@ -505,11 +541,12 @@ def test_pip_install_attempt_success_exits_zero():
     assert result.returncode == 0
 
 
+@_needs_python3
 def test_pip_install_attempt_surfaces_stderr_on_failure():
     """On failure, the last 5 lines of pip output should appear in stdout."""
     snippet = _pip_install_attempt("python3 -m pip install __nonexistent_package_12345__")
     result = subprocess.run(
-        ["bash", "-c", snippet],
+        [BASH, "-c", snippet],
         capture_output=True,
         text=True,
         timeout=60,
