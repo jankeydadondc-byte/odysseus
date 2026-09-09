@@ -53,15 +53,19 @@ def _make_vectorrag(rows):
 
 
 def test_vectorrag_remove_is_path_bounded():
+    # remove_directory abspath-normalizes its argument and matches against the
+    # absolute `source` that indexing stores, so build both the same way. A bare
+    # "/a/docs" literal becomes "C:\a\docs" on Windows and matches nothing.
+    target = os.path.abspath("/a/docs")
     rows = [
-        ("a", {"source": "/a/docs/f1.md"}),
-        ("b", {"source": "/a/docs/sub/f2.md"}),   # nested -> must be removed
-        ("c", {"source": "/a/docs2/f3.md"}),       # sibling prefix -> must survive
-        ("d", {"source": "/a/docs_personal/f4.md"}),  # sibling prefix -> must survive
+        ("a", {"source": os.path.join(target, "f1.md")}),
+        ("b", {"source": os.path.join(target, "sub", "f2.md")}),   # nested -> must be removed
+        ("c", {"source": os.path.join(os.path.abspath("/a/docs2"), "f3.md")}),       # sibling prefix -> must survive
+        ("d", {"source": os.path.join(os.path.abspath("/a/docs_personal"), "f4.md")}),  # sibling prefix -> must survive
         ("e", {"filename": "no-source.md"}),       # sourceless dict -> must not crash/survive
     ]
     rag = _make_vectorrag(rows)
-    res = rag.remove_directory("/a/docs")
+    res = rag.remove_directory(target)
     assert res["success"] is True
     assert res["removed_count"] == 2
     remaining = set(rag._collection.get()["ids"])

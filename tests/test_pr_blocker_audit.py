@@ -725,6 +725,10 @@ def test_color_auto_requires_terminal_and_support(monkeypatch):
     args = audit.argparse.Namespace(format="terminal", color="auto", output=None)
 
     monkeypatch.setattr(audit.sys.stdout, "isatty", lambda: True)
+    # On Windows should_use_color() defers to enable_windows_vt_mode(), which
+    # pokes the real console handle and fails under pytest's captured stdout.
+    # This test is about the NO_COLOR / TERM logic, so pin VT mode as available.
+    monkeypatch.setattr(audit, "enable_windows_vt_mode", lambda: True)
     monkeypatch.delenv("NO_COLOR", raising=False)
     monkeypatch.setitem(audit.os.environ, "TERM", "xterm-256color")
     assert audit.should_use_color(args)
