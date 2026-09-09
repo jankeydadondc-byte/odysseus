@@ -60,6 +60,17 @@ def test_signature_png_normalization_accepts_data_url_and_raw_base64():
         "data:image/jpeg;base64," + base64.b64encode(b"\xff\xd8jpeg").decode("ascii"),
         "A" * (signature_routes._MAX_SIGNATURE_B64 + 4),
     ],
+    # Explicit ids: pytest derives the id from the value, and the oversize case
+    # is _MAX_SIGNATURE_B64 + 4 characters. pytest exports the id through
+    # PYTEST_CURRENT_TEST, and Windows caps an environment variable at 32767
+    # characters, so the generated id makes the test error out before it runs.
+    ids=[
+        "empty",
+        "not-base64",
+        "base64-but-not-png",
+        "jpeg-data-url",
+        "over-max-length",
+    ],
 )
 def test_signature_png_normalization_rejects_invalid_inputs(raw):
     with pytest.raises(HTTPException) as exc:
