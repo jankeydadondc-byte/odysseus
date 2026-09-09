@@ -1,9 +1,16 @@
 import os
+import os
 import sys
 import subprocess
 from pathlib import Path
 
 import pytest
+
+
+def _uri_path(path) -> str:
+    """Path in file-URI form: forward slashes, always leading with "/"."""
+    text = path.as_posix()
+    return text if text.startswith("/") else "/" + text
 
 
 @pytest.mark.skipif(
@@ -138,15 +145,18 @@ def test_sqlite_db_path_handles_file_uri_forms(tmp_path):
     )
 
     localhost_db = tmp_path / "localhost-uri.db"
-    assert (
+    # normcase both sides: a file URI spells the path with forward slashes, which
+    # Windows accepts but does not spell back. On POSIX this is a no-op.
+    assert os.path.normcase(
         _sqlite_db_path(
             make_url(
-                f"sqlite+pysqlite:///file://localhost{localhost_db}"
+                # A file URI needs a URI-shaped path: POSIX paths already begin
+                # with "/", Windows paths ("C:\dir") must gain one -> /C:/dir.
+                f"sqlite+pysqlite:///file://localhost{_uri_path(localhost_db)}"
                 "?mode=rwc&uri=true"
             )
         )
-        == str(localhost_db)
-    )
+    ) == os.path.normcase(str(localhost_db))
 
     non_uri_mode_db = tmp_path / "mode-query-file.db"
     assert (

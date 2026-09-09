@@ -128,6 +128,18 @@ def _sqlite_db_path(url) -> Optional[str]:
     authority = parsed.netloc
     if authority and authority.lower() != "localhost":
         fs_path = f"//{authority}{fs_path}"
+    elif (
+        os.name == "nt"
+        and len(fs_path) >= 3
+        and fs_path[0] == "/"
+        and fs_path[1].isalpha()
+        and fs_path[2] == ":"
+    ):
+        # A file URI spells a Windows path as /C:/dir/db, so urlparse hands back
+        # a leading slash that is not part of the path. Drop it, per the standard
+        # file-URI-to-path rule. Guarded on a drive letter so a genuine POSIX-style
+        # absolute path (and any UNC form handled above) is left alone.
+        fs_path = fs_path[1:]
 
     return unquote(fs_path)
 
