@@ -22,6 +22,11 @@ def _stub_common_probe(monkeypatch, machine):
     monkeypatch.setattr(hardware, "_get_cpu_count", lambda: 16)
     monkeypatch.setattr(hardware, "_get_cpu_name", lambda: "Test CPU")
     monkeypatch.setattr(hardware, "_detect_apple_silicon", lambda: None)
+    # On Windows detect_system() short-circuits into _detect_windows(), a
+    # PowerShell/WMI probe that reports cpu_arch from $env:PROCESSOR_ARCHITECTURE
+    # and ignores every stub above. Returning None makes it fall through to the
+    # generic path these tests are about, so they cover it on any host.
+    monkeypatch.setattr(hardware, "_detect_windows", lambda: None)
     monkeypatch.setattr(hardware, "_detect_amd", lambda: None)
 
 
