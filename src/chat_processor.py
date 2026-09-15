@@ -13,6 +13,32 @@ from src.prompt_security import UNTRUSTED_CONTEXT_POLICY, untrusted_context_mess
 logger = logging.getLogger(__name__)
 
 
+def _load_odysseus_md(workspace: Optional[str] = None) -> Optional[str]:
+    """Load ODYSSEUS.md standing instructions for this session.
+
+    Global file lives at the app root; if the active workspace has its own
+    ODYSSEUS.md it is appended after, so workspace rules win on conflict.
+    The combined text is static per session, so it is safe to fold into the
+    KV-cached system prefix (see issue #2927).
+    """
+    import os
+    from src.runtime_paths import get_app_root
+
+    candidates = [os.path.join(get_app_root(), "ODYSSEUS.md")]
+    if workspace:
+        candidates.append(os.path.join(os.path.abspath(workspace), "ODYSSEUS.md"))
+    parts = []
+    for path in candidates:
+        try:
+            with open(path, encoding="utf-8") as f:
+                text = f.read().strip()
+            if text:
+                parts.append(text)
+        except OSError:
+            continue
+    return "\n\n".join(parts) if parts else None
+
+
 def _clean_search_query(query: str, max_len: int = 200) -> str:
     """Strip fenced code blocks from a search query while preserving inline
     code text.
@@ -274,6 +300,7 @@ class ChatProcessor:
         agent_mode: bool = False,
         incognito: bool = False,
         use_skills: bool = True,
+        workspace: Optional[str] = None,
     ) -> Tuple[List[Dict[str, str]], List[Dict[str, Any]], List[Dict[str, str]]]:
         """Build the context preface for LLM calls.
 
@@ -302,6 +329,21 @@ class ChatProcessor:
                 "role": "system",
                 "content": preset_system_prompt
             })
+
+        # ODYSSEUS.md standing instructions (global app root + optional
+        # workspace-level file, appended last). Trusted, static per session —
+        # safe in the KV-cached system prefix.
+        try:
+            odysseus_md = _load_odysseus_md(workspace=workspace)
+        except Exception as e:  # never break a turn over missing/odd rules file
+            logger.warning("ODYSSEUS.md load failed: %s", e)
+            odysseus_md = None
+        if odysseus_md:
+            preface.append({
+                "role": "system",
+                "content": odysseus_md,
+            })
+
         preface.append({
             "role": "system",
             "content": UNTRUSTED_CONTEXT_POLICY,

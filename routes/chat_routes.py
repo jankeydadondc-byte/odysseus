@@ -836,6 +836,8 @@ def setup_chat_routes(
             webhook_manager=webhook_manager,
             allow_tool_preprocessing=allow_tool_preprocessing,
             defer_context_shaping=foreground_policy.enabled,
+            # No workspace on the sync API path (ChatRequest carries none);
+            # the global ODYSSEUS.md still loads, only the workspace layer is skipped.
         )
 
         # Research injection
@@ -1383,6 +1385,7 @@ def setup_chat_routes(
                 else None
             ),
             persist_user_message=not tool_approval_continuation,
+            workspace=workspace,
         )
 
         _research_flags = {"do": do_research}  # Mutable container for generator scope

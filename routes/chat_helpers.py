@@ -626,6 +626,7 @@ async def build_chat_context(
     defer_context_shaping: bool = False,
     continuation_context_message: str | None = None,
     persist_user_message: bool = True,
+    workspace: str | None = None,
 ) -> ChatContext:
     """Build the full context (preface + messages) for an LLM call.
 
@@ -731,6 +732,7 @@ async def build_chat_context(
         agent_mode=agent_mode,
         incognito=incognito,
         use_skills=skills_enabled,
+        workspace=workspace,
     )
     if use_rag is not None or is_research_spinoff or casual_low_signal:
         _preface_kwargs["use_rag"] = use_rag_val
