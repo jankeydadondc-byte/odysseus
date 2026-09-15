@@ -33,17 +33,15 @@ from routes.cookbook_helpers import (
     _shell_path,
     run_ssh_command_async,
 )
+from core.platform_compat import find_bash
 
-
-
-# Resolve bash from PATH rather than letting CreateProcess pick it. On Windows,
-# C:\Windows\System32\bash.exe (the WSL launcher) lives in the system directory,
-# which CreateProcess searches before PATH, so a bare "bash" runs WSL. WSL cannot
-# see the repo at its Windows path (exit 127, "No such file or directory") and its
-# /usr/bin shadows anything injected into PATH. shutil.which() returns the
-# PATH-resolved bash (Git Bash here), which handles both correctly. On POSIX this
-# resolves to the same /usr/bin/bash the bare name would have found.
-BASH = shutil.which("bash") or "bash"
+# Resolve bash explicitly rather than letting CreateProcess pick it. On Windows,
+# C:\Windows\System32\bash.exe (the WSL launcher) is found before anything on
+# PATH, and a default Git install does not put Git Bash on PATH at all, so
+# shutil.which() also returns WSL. find_bash() rejects the WSL stub and falls
+# back to the known Git Bash locations. On POSIX it resolves to the same
+# /usr/bin/bash the bare name would have found.
+BASH = find_bash() or "bash"
 
 
 def _bash_has_working_python3() -> bool:

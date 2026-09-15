@@ -1,6 +1,7 @@
 """Behavioral regression coverage for Windows-local Cookbook PID recording."""
 
 import os
+import shlex
 import shutil
 import subprocess
 import time
@@ -9,22 +10,19 @@ from pathlib import Path
 import pytest
 
 from routes.cookbook_routes import _windows_local_pid_record_line
-
+from core.platform_compat import find_bash, git_bash_path
 
 
 ROOT = Path(__file__).resolve().parents[1]
 COOKBOOK_ROUTES = ROOT / "routes" / "cookbook_routes.py"
 
-
-
-# Resolve bash from PATH rather than letting CreateProcess pick it. On Windows,
-# C:\Windows\System32\bash.exe (the WSL launcher) lives in the system directory,
-# which CreateProcess searches before PATH, so a bare "bash" runs WSL. WSL cannot
-# see the repo at its Windows path (exit 127, "No such file or directory") and its
-# /usr/bin shadows anything injected into PATH. shutil.which() returns the
-# PATH-resolved bash (Git Bash here), which handles both correctly. On POSIX this
-# resolves to the same /usr/bin/bash the bare name would have found.
-BASH = shutil.which("bash") or "bash"
+# Resolve bash explicitly rather than letting CreateProcess pick it. On Windows,
+# C:\Windows\System32\bash.exe (the WSL launcher) is found before anything on
+# PATH, and a default Git install does not put Git Bash on PATH at all, so
+# shutil.which() also returns WSL. find_bash() rejects the WSL stub and falls
+# back to the known Git Bash locations. On POSIX it resolves to the same
+# /usr/bin/bash the bare name would have found.
+BASH = find_bash() or "bash"
 
 def _fake_cat(tmp_path: Path, body: str) -> Path:
     fake_bin = tmp_path / "bin"
@@ -42,6 +40,14 @@ def _env_for(fake_bin: Path, **extra: str) -> dict[str, str]:
     return env
 
 
+def _bash_argv(pid_path: Path, ready_path: Path, fake_bin: Path) -> list[str]:
+    # Git Bash (bin\bash.exe) rebuilds PATH on startup with /usr/bin first, so a
+    # fake_bin prepended on the Windows side is shadowed by the real cat. Prepend
+    # it again inside the shell, after that rewrite. Harmless on POSIX.
+    prelude = f"export PATH={shlex.quote(git_bash_path(fake_bin))}:$PATH; "
+    return [BASH, "-c", prelude + _windows_local_pid_record_line(pid_path, ready_path)]
+
+
 def _run_pid_line(
     pid_path: Path,
     ready_path: Path,
@@ -49,7 +55,7 @@ def _run_pid_line(
     **extra_env: str,
 ) -> subprocess.CompletedProcess:
     return subprocess.run(
-        [BASH, "-c", _windows_local_pid_record_line(pid_path, ready_path)],
+        _bash_argv(pid_path, ready_path, fake_bin),
         capture_output=True,
         text=True,
         env=_env_for(fake_bin, **extra_env),
@@ -101,11 +107,7 @@ def test_windows_local_pid_line_waits_for_python_fallback_before_replacing(tmp_p
     )
 
     proc = subprocess.Popen(
-        [
-            BASH,
-            "-c",
-            _windows_local_pid_record_line(pid_path, ready_path),
-        ],
+        _bash_argv(pid_path, ready_path, fake_bin),
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
