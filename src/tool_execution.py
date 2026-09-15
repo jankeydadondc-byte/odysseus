@@ -17,6 +17,7 @@ import pathlib
 import re
 import stat
 import sys
+import tempfile
 import time
 from typing import Any, Awaitable, Callable, Dict, Optional, Tuple
 
@@ -339,6 +340,11 @@ def _tool_path_roots() -> list[str]:
     tmpdir = os.environ.get("TMPDIR")
     if tmpdir:
         roots.append(tmpdir)
+
+    # %TEMP% / %TMP% on Windows. tempfile.gettempdir() honours both (and is
+    # normally just /tmp elsewhere, which dedups below). It may return the
+    # 8.3 short form; the realpath pass normalises it.
+    roots.append(tempfile.gettempdir())
 
     # Opt-in extra roots from settings.
     try:
